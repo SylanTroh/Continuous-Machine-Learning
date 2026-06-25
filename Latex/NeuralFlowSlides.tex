@@ -1,0 +1,622 @@
+\documentclass[aspectratio=169]{beamer}
+
+\usetheme{Madrid}
+\usecolortheme{default}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}[frame number]
+
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{graphicx}
+\usepackage{booktabs}
+
+% Paths
+\graphicspath{{../Figures/}}
+
+% Notation
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\op}{\mathrm{op}}
+\DeclareMathOperator{\diag}{diag}
+\DeclareMathOperator{\sech}{sech}
+\DeclarePairedDelimiter{\norm}{\lVert}{\rVert}
+
+\newcommand{\resultfigure}[3][0.62\textheight]{\begin{center}
+  \IfFileExists{../Figures/#2}
+    {\includegraphics[height=#1,keepaspectratio]{#2}}
+    {\fbox{\parbox[c][#1][c]{0.8\textwidth}{\centering\color{gray}
+      pending: \texttt{\detokenize{Figures/#2}}\\[4pt]\small #3}}}
+  \end{center}}
+
+\newcommand{\backupbegin}{\newcounter{finalframe}\setcounter{finalframe}{\value{framenumber}}}
+\newcommand{\backupend}{\setcounter{framenumber}{\value{finalframe}}}
+
+\title{Numerical Experiments with the Machine Learning Framework of Weinan E}
+\subtitle{}
+\author{Laura Nemeth}
+\date{2026}
+
+\begin{document}
+
+% ============================================================================
+\begin{frame}
+\titlepage
+\end{frame}
+
+% ============================================================================
+\begin{frame}{Outline}
+\tableofcontents
+\end{frame}
+
+% ============================================================================
+\section{Motivation}
+% ============================================================================
+
+\begin{frame}{Motivation}
+In 2017, Weinan E published ``A Proposal on Machine Learning via Dynamical Systems,'' describing connections between dynamical systems, and the training of deep neural networks.
+
+\bigskip
+In this talk, we review the proposed framework and present numerical experiments illustrating how these ideas work in practice: we compare different numerical schemes and function representations for the control parameters, and perform error analysis for these methods.
+\end{frame}
+
+% ============================================================================
+
+\begin{frame}{Deep Neural Networks and Discrete Dynamical Systems}
+A deep neural network passes its input through a sequence of layers,
+\[
+x_{k+1} = \sigma(A_k x_k + B_k), \qquad x_0 \in \R^d,
+\]
+each a linear transform followed by a componentwise nonlinear activation $\sigma$. Our goal is to choose the weights $\{A_k, B_k\}$ so that the output $x_K$ of our model approximates a target function $g$.
+
+\bigskip
+Taking the layer index $k$ as time, a deep network can be seen as a discrete dynamical system. Choosing the weights by training is a control problem.
+\end{frame}
+
+% ============================================================================
+
+\begin{frame}{Residual Neural Networks and ODEs}
+A residual neural network is built from blocks of the form $x \mapsto x + f(x)$, where $f$ is itself one or more layers of a neural network. In the case of a single layer,
+\[
+x_{k+1} = x_k + \sigma(A_k x_k + B_k), \qquad x_0 \in \R^d.
+\]
+Taking the layer index $k$ as time, a residual neural network can be seen as a discretization of the ODE $x' = \sigma(A(t)x + B(t))$ using the Euler method.
+
+\end{frame}
+
+% ============================================================================
+
+\begin{frame}{Problem Formulation}
+We study the dynamical system
+\[
+\frac{dx}{dt} = \sigma\bigl(A(t)\,x + B(t)\bigr), \qquad x(0) = a \in \R^d, \qquad t \in [0,1],
+\]
+where $P(t) = (A(t), B(t))$ is the control and $\sigma$ is a fixed nonlinear function.
+\newline We occasionally write $f(x, t;\,P) = \sigma(A(t)x + B(t))$ to emphasize that $f$ depends on these control parameters.
+
+\bigskip
+For fixed $P$, the solution defines the flow map over the time interval $[0,1]$:
+\[
+\Phi^t_P: \R^d \to \R^d, \qquad a \mapsto x(t;\,a,\,P).
+\]
+In practice, we may also map inputs in $\R^{d_{\mathrm{in}}}$ to outputs in $\R^{d_{\mathrm{out}}}$ using a pair of linear embeddings: $u \mapsto W_{\mathrm{out}}\,\Phi^1_P(W_{\mathrm{in}}\,u)$, though we will primarily focus on just the flow.
+\end{frame}
+
+% ============================================================================
+
+\begin{frame}{Training}
+The state $x(t,a,P)$ is defined implicitly by $F(x,a,P) = x(t) - a - \int_0^t f(x(s),s;\,P)\,ds$.
+
+To approximate a target $g$, we minimize the error over a distribution $\mu$ of initial conditions,
+\[
+E(P) = \int \norm{x(1;a,P) - g(a)}^2 \, d\mu(a).
+\]
+Setting $F(x(a,P),a,P) = 0$ and differentiating in $P$ gives
+\[
+[\,D_1 F \ \ D_2 F\,]\begin{bmatrix} D_P x \\ I \end{bmatrix} \quad\Longrightarrow\quad
+D_P x = -(D_1 F)^{-1} D_2 F.
+\]
+And so the gradient is.
+\[
+\nabla E(P)\,H = 2\int \bigl(x(1;a,P) - g(a)\bigr)^{\!\top} D_P x(1;a,P)\,H \; d\mu(a).
+\]
+We can then update the parameters via gradient descent.
+\end{frame}
+
+% ============================================================================
+
+\section{Controllability Experiments}
+% ============================================================================
+
+\begin{frame}{Controllability Experiments}
+Neural networks are known to be very expressive: by the universal approximation theorem, a sufficiently large network can approximate any continuous function. However in practice, it can be very difficult to find a suitable control. We would like to better understand under what conditions gradient descent is likely to reach a good control.
+\end{frame}
+
+% ============================================================================
+
+\begin{frame}{Choice of Function Representation}
+The control $A(t)$ and $B(t)$ are functions on $[0,1]$. In this work, we represent each entry by $N$ values $\{y_k\}_{k=0}^{N-1}$ at fixed nodes and interpolate between the nodes. We compare two choices for interpolation:
+\begin{itemize}
+\item \textbf{Piecewise-linear spline}: values at uniformly spaced nodes using linear interpolation.
+\item \textbf{Chebyshev polynomial}: values at the Chebyshev nodes $t_k = \tfrac{1}{2}\bigl(1 - \cos\tfrac{k\pi}{N-1}\bigr)$, using Lagrange interpolation.
+\end{itemize}
+\end{frame}
+
+% ============================================================================
+
+\begin{frame}{Choice of Function Representation}
+We compare the mean loss of two networks that differ only in their function representation. For each task, we train the model 100 times with a Spline representation and 100 times with a Chebyshev representation and compare the normalized error $\hat E = E/\mathrm{Var}$, where Var is the variance of the target data set.
+
+\begin{center}
+\scriptsize\setlength{\tabcolsep}{8pt}\begin{tabular}{lccc}
+\toprule
+Task & $\hat E$ & $\hat E_c-\hat E_s$ & $99.9\%$ CI \\
+\midrule
+det$(3)$, $N{=}4$  & $4.30\times10^{-3}$ & $+0.55\times10^{-3}$ & $[+0.15,\,+0.95]\times10^{-3}$ \\
+det$(3)$, $N{=}8$  & $2.52\times10^{-3}$ & $+0.18\times10^{-3}$ & $[-0.04,\,+0.40]\times10^{-3}$ \\
+det$(3)$, $N{=}16$ & $1.73\times10^{-3}$ & $-0.18\times10^{-3}$ & $[-0.39,\,+0.03]\times10^{-3}$ \\
+det$(3)$, $N{=}32$ & $1.41\times10^{-3}$ & $-0.06\times10^{-3}$ & $[-0.25,\,+0.13]\times10^{-3}$ \\
+\midrule
+MNIST, $N{=}4$  & $6.81\times10^{-3}$ & $-0.31\times10^{-3}$ & $[-0.87,\,+0.26]\times10^{-3}$ \\
+MNIST, $N{=}8$  & $4.17\times10^{-3}$ & $+0.35\times10^{-3}$ & $[-0.25,\,+0.95]\times10^{-3}$ \\
+MNIST, $N{=}16$ & $3.04\times10^{-3}$ & $-0.19\times10^{-3}$ & $[-0.58,\,+0.20]\times10^{-3}$ \\
+MNIST, $N{=}32$ & $2.44\times10^{-3}$ & $-0.30\times10^{-3}$ & $[-0.49,\,-0.10]\times10^{-3}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\medskip
+
+For the remaining experiments, the Chebyshev representation is used.
+\end{frame}
+
+% ============================================================================
+
+\begin{frame}{Choice of Function Representation}
+The pooled training loss, comparing Spline against Chebyshev. For each task, the curve shows the per-epoch mean over the four different model depths.
+
+\resultfigure[0.55\textheight]{paired_loss.png}{Spline-vs-Chebyshev training loss}
+\end{frame}
+
+% ============================================================================
+
+\begin{frame}{ODE Solvers}
+In our framework, a discrete neural net can be seen as the discretization of the model $\frac{dx}{dt} = \sigma\bigl(A(t)\,x + B(t)\bigr)$. But we can also experiment with other solvers. As before, we compare the normalized error $\hat E = E/\mathrm{Var}$, with Euler (the residual network) as the baseline.
+
+\begin{center}
+\scriptsize\setlength{\tabcolsep}{6pt}\begin{tabular}{llccc}
+\toprule
+Task & Solver & $\hat E$ & $\hat E-\hat E_{\mathrm{euler}}$ & $99.9\%$ CI \\
+\midrule
+det$(3)$ & Euler            & $5.69\times10^{-3}$ & --- & --- \\
+         & RK4              & $4.24\times10^{-3}$ & $-1.45\times10^{-3}$ & $[-2.03,\,-0.87]\times10^{-3}$ \\
+         & Tsit5 (adaptive) & $4.75\times10^{-3}$ & $-0.95\times10^{-3}$ & $[-1.57,\,-0.32]\times10^{-3}$ \\
+\midrule
+MNIST    & Euler            & $12.01\times10^{-3}$ & --- & --- \\
+         & RK4              & $10.62\times10^{-3}$ & $-1.38\times10^{-3}$ & $[-2.75,\,-0.02]\times10^{-3}$ \\
+         & Tsit5 (adaptive) & $10.62\times10^{-3}$ & $-1.39\times10^{-3}$ & $[-3.00,\,+0.22]\times10^{-3}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+For the remaining experiments, we use the Runge-Kutta solver (RK4).
+\end{frame}
+
+% ============================================================================
+
+\begin{frame}{ODE Solvers}
+The pooled training loss under each solver. For each task the curve is the mean over all $100$ trained models.
+
+\resultfigure[0.55\textheight]{solver_loss.png}{Training loss by ODE solver}
+\end{frame}
+
+% ============================================================================
+
+\begin{frame}{Solver Resolution}
+We can vary the number of timesteps $k$ used by the ODE solver when computing the solution. We hold the number of control points fixed at $N=8$. This adjusts the layer depth of the model without adjusting the number of model parameters. We train the model to approximate the 3x3 determinant.
+
+\begin{center}
+\scriptsize\setlength{\tabcolsep}{6pt}\begin{tabular}{llccc}
+\toprule
+Solver & $k$ & $\hat E$ & $\hat E-\hat E_{k=N}$ & $99.9\%$ CI \\
+\midrule
+Euler & $4$  & $4.9755$ & $+4.0996$ & $[+3.6439,\,+4.5553]$ \\
+      & $8$  & $0.8759$ & --- & --- \\
+      & $16$ & $0.0727$ & $-0.8032$ & $[-0.9292,\,-0.6772]$ \\
+      & $32$ & $0.0329$ & $-0.8430$ & $[-0.9692,\,-0.7168]$ \\
+      & $64$ & $0.0119$ & $-0.8641$ & $[-0.9905,\,-0.7376]$ \\
+\midrule
+RK4   & $4$  & $0.1079$ & $+0.0934$ & $[+0.0797,\,+0.1072]$ \\
+      & $8$  & $0.0145$ & --- & --- \\
+      & $16$ & $0.0054$ & $-0.0091$ & $[-0.0114,\,-0.0067]$ \\
+      & $32$ & $0.0027$ & $-0.0118$ & $[-0.0139,\,-0.0096]$ \\
+      & $64$ & $0.0028$ & $-0.0117$ & $[-0.0138,\,-0.0095]$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{frame}
+
+% ============================================================================
+
+\begin{frame}{Solver Resolution}
+The pooled training loss at each resolution $k$, with the number of control points held fixed at $N{=}8$. For each $k$ the curve is the mean over the $100$ trained models.
+
+\resultfigure[0.55\textheight]{solver_resolution_loss.png}{Training loss by solver resolution}
+\end{frame}
+
+% ============================================================================
+\section{Difficulties in Training the Determinant Function}
+
+\begin{frame}{Difficulties in Training the Determinant Function}
+From early experimentation, the determinant function appeared to be particularly difficult for the model to learn. For larger matrices, the model appears to be unable to learn the function via gradient descent.
+
+\resultfigure[0.55\textheight]{det_plateau.png}{Per-seed held-out $E/\mathrm{Var}$ vs.\ epoch for $\det(2)$--$\det(4)$ (median in black)}
+
+Rather than getting stuck in a global minimum, the training seems to be stuck from the start regardless of initialization.
+\end{frame}
+% ============================================================================
+
+\begin{frame}{Gradient Calculation}
+In order to figure out what is happening, we calculate the gradient of the loss function when training on $g(M) = \det(M)$ explicitly.
+Let $M \in \mathbb{M}(n,n)$ be a random matrix with independent entries, $\mathbb{E}[M_{ij}]=0$.
+\begin{align*}
+\nabla E(P) &= 2 \int_\mathbb{M} \left(x_P - \det(M)\right) \cdot \nabla_{P} x_P \,\mathrm{d}\mu \\
+&= 2 \left( \int_\mathbb{M} x_P \cdot \nabla_{P} x_P \,\mathrm{d}\mu
+   - \int_\mathbb{M} \det(M) \cdot \nabla_{P} x_P \,\mathrm{d}\mu \right)
+\end{align*}
+
+For the first term:
+
+\begin{align*}
+2\int_\mathbb{M} ( x_P \cdot \nabla_{P} x_P \,\mathrm{d}\mu)
+&= \nabla_{P} \int_\mathbb{M} \|x_P\|^2 \,\mathrm{d}\mu
+=  \nabla_{P} \norm{x_P}_2^2
+\end{align*}
+\end{frame}
+
+% ============================================================================
+
+\begin{frame}{Gradient Calculation}
+
+\emph{Lemma:} Let $M$ be a random $n\times n$ matrix with independent entries and
+$\mathbb{E}[M_{ij}]=0$.
+Recall that $\det(M)=\sum_{\pi\in S_n}\operatorname{sgn}(\pi)\prod_{i=1}^{n} M_{i\pi(i)}$,
+is a polynomial in the entries of $M$. For any polynomial $q(M)$ in the entries of $M$ with $\deg q \le n-1$,
+\[
+\int_\mathbb{M} \det(M)\,q(M)\,\mathrm{d}\mu = \mathbb{E}\big[\det(M)\,q(M)\big] = 0
+\]
+
+By linearity it suffices to take a monomial $q = \prod_{i,j} M_{ij}^{\beta_{ij}}$ with
+$\sum_{i,j} \beta_{ij} \le n-1$. Expanding the determinant,
+\[
+\mathbb{E}\big[\det(M)\,q\big]
+= \sum_{\pi\in S_n} \operatorname{sgn}(\pi)\,
+  \mathbb{E}\Big[q\textstyle\prod_{i=1}^{n} M_{i\pi(i)}\Big].
+\]
+Since $q$ has degree $\le n-1$ at least one of the factors $M_{j\pi(j)}$ in $q\prod_i M_{i\pi(i)}$ is of multiplicity one.
+
+\end{frame}
+
+% ============================================================================
+
+\begin{frame}{Gradient Calculation}
+
+Since $M_{j\pi(j)}$ appears in neither $q$ nor the remaining factors, it is independent
+of $R = q\prod_{i\ne j} M_{i\pi(i)}$, so the expectation factors:
+\[
+\mathbb{E}\Big[q\textstyle\prod_{i=1}^{n} M_{i\pi(i)}\Big]
+= \mathbb{E}\big[M_{j\pi(j)}\,R\big]
+= \mathbb{E}\big[M_{j\pi(j)}\big]\,\mathbb{E}[R] = 0,
+\]
+because $\mathbb{E}[M_{j\pi(j)}]=0$. Every term in the sum vanishes, and so
+\[
+\mathbb{E}\big[\det(M)\,q(M)\big] = 0. \qquad\blacksquare
+\]
+
+\end{frame}
+
+% ============================================================================
+
+\begin{frame}{Gradient Calculation}
+
+Our model is the fixed point of the Picard iteration
+\[
+x_0(t)=a,\qquad x_{k+1}(t)=a+\int_0^t\sigma\big(A\,x_k+B\big)\,\mathrm{d}s,\qquad a=W_{\mathrm{in}}\,\mathrm{vec}(M).
+\]
+The first step of the iteration is: $x_1(t)=a+\int_0^t\sigma(Aa+B)\,\mathrm{d}s$. If $\sigma$ is in $C^n$:
+\[
+\sigma(Aa+B)=\sum_{d=0}^{n-1}\frac{\sigma^{(d)}(B)}{d!}(Aa)^{d}+ R_n(Aa),\qquad R_n(Aa)=O\big(|Aa|^{n}\big)
+\]
+so $x_1(1)=a+\sigma(B)+\sigma'(B)(Aa)+\frac{\sigma''(B)}{2}(Aa)^2+\cdots+\frac{\sigma^{(n-1)}(B)}{(n-1)!}(Aa)^{n-1}+R_n(Aa).$
+
+\end{frame}
+
+% ============================================================================
+\begin{frame}{Gradient Calculation}
+Given the form of $x_1(1)$, (or just using Taylor's theorem since $\sigma\in C^n$) we guess the form:
+$x_P=\sum_{d=0}^{n-1} X_d(a) + R_n(a)$, $R_n=O(|a|^n)$. With $z_0=AX_0+B$ and $h=AX_1+AX_2+\cdots$,
+substitute into the fixed point and expand $\sigma$ about $z_0$:
+\[
+\sum_d X_d(a) = a + \int_0^1\Big(\sigma(z_0)+\sigma'(z_0)\,h+\tfrac12\sigma''(z_0)\,h^2+\cdots\Big)\,\mathrm{d}s
+\]
+Matching degrees:
+\begin{align*}
+\text{deg }0:&\quad X_0 = \int_0^1\sigma(z_0)\,\mathrm{d}s \\
+\text{deg }1:&\quad X_1 = a + \int_0^1\sigma'(z_0)\,AX_1\,\mathrm{d}s\\
+\text{deg }2:&\quad X_2 = \int_0^1\big[\sigma'(z_0)\,AX_2+\tfrac12\sigma''(z_0)(AX_1)^2\big]\,\mathrm{d}s\\
+\vdots
+\end{align*}
+\end{frame}
+
+% ============================================================================
+\begin{frame}{Gradient Calculation}
+Each $X_d$ appears on the right only through $AX_d$, sourced by lower degrees that each carry a
+factor of $A$, so for $d\ge2$,
+\[
+X_d = O\big(\|A\|^{d}\big).
+\]
+Differentiating in $P$ (which preserves the degree in $a$),
+\[
+\nabla_P x_P = q(M) + \nabla_P R_n,\qquad \deg q\le n-1,\quad \nabla_P R_n = O\big(\|A\|^{n-1}\big).
+\]
+
+\end{frame}
+% ============================================================================
+
+\begin{frame}{Gradient Calculation}
+
+Finally, by the Lemma, $\int_\mathbb{M} \det(M)\,q(M)\,\mathrm{d}\mu = 0$ since $\deg q\le n-1$, leaving only the remainder:
+\[
+\int_\mathbb{M}\det(M)\,\nabla_P x_P\,\mathrm{d}\mu= O\big(\|A\|^{\,n-1}\big).
+\]
+
+\begin{equation*}
+\nabla E(P) = 2 \left( \int_\mathbb{M} x_P \cdot \nabla_{P} x_P \,\mathrm{d}\mu
+   - \int_\mathbb{M} \det(M) \cdot \nabla_{P} x_P \,\mathrm{d}\mu \right)
+   = \nabla_{P} \norm{x_P}_2^2 + O\!\big(\|A\|^{\,n-1}\big)
+\end{equation*}
+
+\medskip
+
+This, in combination with the vanishing gradient problem presents an issue. If we initialize $A$ such that $\norm{A_k} \approx 0$, then gradient descent pulls the model to approximate the zero function. If we initialize $A$ with a larger norm, then the dynamics of the model are very likely to explode.
+\end{frame}
+
+% ============================================================================
+
+\begin{frame}{The Vanishing Gradient Problem}
+Training minimizes the approximation error, or loss $E = \norm{x_K - g(x_0)}^2$, by gradient descent. By the chain rule,
+\[
+\frac{\partial x_K}{\partial x_0} = \prod_{k=0}^{K-1}\Bigl(I + \sigma'(A_k x_k + B_k)\,A_k\Bigr), \qquad \norm*{\frac{\partial x_{k+1}}{\partial x_k} - I} \le |\sigma'|\,\norm{A_k}.
+\]
+
+\bigskip
+With many layers, this product is prone to either grow or decay exponentially, which leads to difficulty in training deep networks. This difficulty affects both discrete and continuous systems, but the continuous framework offers some tools with which we can attempt to address the issue.
+
+\bigskip
+To keep this product controlled, neural networks are usually initialized with $\frac{\partial x_{k+1}}{\partial x_k} \approx I$ or in the case of a residual neural net, with $\norm{A_k} \approx 0$.
+\end{frame}
+
+% ============================================================================
+\begin{frame}{Failed Experiments}
+As we can see from the determinant, model initialization on its own is not enough to ensure that our gradient descent converges towards our target function in a reasonable amount of time for all target functions. I experimented with a number of techniques to help improve the training, however, none of them ended up helping:
+
+\bigskip
+\begin{itemize}
+\item Sampling matrices from a biased set that does not have an expected value of zero. For example, random matrices centered around the identity rather than zero.
+\item Training on a simpler related problem simultaneously. For example, training the model to predict the matrix cofactors as well as the determinant. The idea being that the cofactors can be used to help calculate the determinant.
+\item Successively increasing the size of the matrix trained on. That is training on 2x2 matrices first, then 3x3, then 4x4, etc.
+\end{itemize}
+\end{frame}
+
+
+% ============================================================================
+\section{Future Research Directions}
+% ============================================================================
+\begin{frame}{Future Research Directions}
+\begin{itemize}
+\item Interrogating the training process itself: For this research, I leaned on and adapted generally accepted machine learning conventions for training a model, choosing to focus more on the structure of the models themselves.
+\item Expanding this framework to include other machine learning architectures. For example, looking at recurrent neural networks and LSTMs as an analogue of autonomous ODEs.
+\item Exploring the dynamics of more complicated nonlinearities in the model.
+\end{itemize}
+\end{frame}
+
+% ============================================================================
+\begin{frame}{Exploring Model Architecture}
+For example, traditionally residual neural networks use a more complex nonlinearity than the one we've been exploring so far; at least two layers per step:
+$$\frac{dx}{dt} = \sigma\!\bigl(A_2(t)\,\sigma(A_1(t)x+B_1(t))+B_2(t)\bigr)$$
+
+We compare the single-layer per-block model (L1), the two-layer per-block model (L2), and a  ``bottleneck'' model with three layers per-block that contracts the dimension of the model, before expanding out again for the euler step.
+\begin{center}
+\scriptsize\setlength{\tabcolsep}{8pt}\begin{tabular}{llccc}
+\toprule
+Task & $N$ & L1 & L2 & bottleneck \\
+\midrule
+det$(3)$ & $1$ & $0.416$ & $0.075$ & $0.803$ \\
+         & $2$ & $0.200$ & $0.041$ & $0.577$ \\
+         & $4$ & $0.138$ & $0.019$ & $0.201$ \\
+         & $8$ & $0.107$ & $0.012$ & $0.059$ \\
+\midrule
+MNIST    & $1$ & $0.084$ & $0.067$ & $0.105$ \\
+         & $2$ & $0.080$ & $0.063$ & $0.089$ \\
+         & $4$ & $0.073$ & $0.059$ & $0.075$ \\
+         & $8$ & $0.067$ & $0.055$ & $0.067$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{frame}
+
+% ============================================================================
+\begin{frame}{Exploring Model Architecture}
+The mean training loss over the $100$ runs, for all three model architectures given on the previous slide.
+
+\resultfigure[0.52\textheight]{cell_depth_loss.png}{Training loss by cell depth}
+\end{frame}
+
+% ============================================================================
+\begin{frame}{References}
+
+\small
+\begin{itemize}
+\item Weinan E, ``A Proposal on Machine Learning via Dynamical Systems,'' \emph{Commun.\ Math.\ Stat.}, 5:1--11, 2017.
+\item R.T.Q.\ Chen, Y.\ Rubanova, J.\ Bettencourt, and D.\ Duvenaud, ``Neural Ordinary Differential Equations,'' \emph{Advances in Neural Information Processing Systems} (NeurIPS), 2018.
+\item Weinan E, C.\ Ma, and L.\ Wu, ``Machine Learning from a Continuous Viewpoint, I,'' \emph{Sci.\ China Math.}, 63:2233--2266, 2020.
+\item Weinan E, C.\ Ma, S.\ Wojtowytsch, and L.\ Wu, ``Towards a Mathematical Understanding of Neural Network-Based Machine Learning: What We Know and What We Don't,'' \emph{CSIAM Trans.\ Appl.\ Math.}, 1(4):561--615, 2020.
+\item L.N.\ Trefethen, \emph{Spectral Methods in MATLAB}, SIAM, 2000.
+\item C.\ Robinson, \emph{Dynamical Systems: Stability, Symbolic Dynamics, and Chaos}, 2nd ed., CRC Press, 1998.
+\end{itemize}
+\end{frame}
+
+% ============================================================================
+\appendix
+\backupbegin
+
+% ============================================================================
+\section{Existence, Uniqueness, and Smoothness}
+% ============================================================================
+
+\begin{frame}{Choice of Nonlinearity}
+``Activation'' functions are the nonlinear component in neural networks.
+\begin{center}
+\begin{tabular}{lccccc}
+\toprule
+& $\sigma(x)$ & $\sigma'(x)$ & $L_\sigma$ & Bounded & Smoothness \\
+\midrule
+ReLU & $\max(0,x)$ & $\begin{cases} 1 & x>0 \\ 0 & x<0 \end{cases}$ & $1$ & No & $C^0$ \\[6pt]
+Sigmoid & $\frac{1}{1+e^{-x}}$ & $\sigma(1-\sigma)$ & $\frac{1}{4}$ & $(0,1)$ & $C^\infty$ \\[6pt]
+Tanh & $\tanh(x)$ & $\sech^2(x)$ & $1$ & $(-1,1)$ & $C^\infty$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\bigskip
+$\sigma: \R \to \R$ is applied componentwise to vectors: $\sigma(x) = (\sigma(x_1), \ldots, \sigma(x_d))^\top$.
+\end{frame}
+
+% ============================================================================
+\begin{frame}{Existence and Uniqueness}
+\textbf{Theorem.} The initial value problem $x' = f(x, t;\,P)$, $x(0) = a$ has a unique solution $x \in C([0,1]; \R^d)$.
+
+\bigskip
+\textbf{Proof.} $f(x, t;\,P) = \sigma(A(t)x + B(t))$ is a composition of two Lipschitz maps: $x \mapsto A(t)x + B(t)$ (constant $\norm{A(t)}_\op$) and $\sigma$ (constant $L_\sigma$). So $x \mapsto f(x, t;\,P)$ is Lipschitz with constant
+\[
+L = L_\sigma \cdot \sup_{t \in [0,1]} \norm{A(t)}_\op < \infty.
+\]
+
+Define the Picard operator $(\mathcal{T}x)(t) = a + \int_0^t f(x(s), s;\,P)\,ds.$
+
+\bigskip
+A solution is a fixed point of $\mathcal{T}$. We will show $\mathcal{T}$ is a contraction on $C([0,1]; \R^d)$ and apply Banach's theorem.
+\end{frame}
+
+% ============================================================================
+\begin{frame}{Existence and Uniqueness}
+Let $\lambda > 0$. For $x \in C([0,1]; \R^d)$, define:
+\[
+\norm{x}_\lambda = \sup_{t \in [0,1]} e^{-\lambda t}\norm{x(t)}.
+\]
+
+\textbf{Claim.} $\norm{\cdot}_\lambda$ is a norm on $C([0,1]; \R^d)$, equivalent to the sup norm.
+
+\bigskip
+\textbf{Proof.}
+
+\emph{Positive definiteness.} Since $e^{-\lambda t} > 0$ for all $t$, $\norm{x}_\lambda = 0$ $\iff$ $\norm{x(t)} = 0$ for all $t$ $\iff$ $x = 0$, since $\norm{\cdot}$ is a norm on $\R^d$.
+
+\emph{Absolute homogeneity.} $\norm{\alpha x}_\lambda = \sup_t e^{-\lambda t}\norm{\alpha x(t)} = |\alpha|\sup_t e^{-\lambda t}\norm{x(t)} = |\alpha|\,\norm{x}_\lambda$.
+
+\emph{Triangle inequality.}
+\[
+\norm{x + w}_\lambda = \sup_t e^{-\lambda t}\norm{x(t) + w(t)} \leq \sup_t e^{-\lambda t}\bigl(\norm{x(t)} + \norm{w(t)}\bigr) \leq \norm{x}_\lambda + \norm{w}_\lambda.
+\]
+
+\emph{Equivalence.} $e^{-\lambda}\norm{x}_\infty \leq \norm{x}_\lambda \leq \norm{x}_\infty$.
+\end{frame}
+
+% ============================================================================
+\begin{frame}{Existence and Uniqueness}
+We show $\mathcal{T}$ is a contraction in $\norm{\cdot}_\lambda$. For any $x, w \in C([0,1]; \R^d)$:
+\[
+\norm{(\mathcal{T}x)(t) - (\mathcal{T}w)(t)} = \norm*{\int_0^t \bigl[f(x(s), s;\,P) - f(w(s), s;\,P)\bigr]\,ds} \leq \int_0^t L\,\norm{x(s) - w(s)}\,ds.
+\]
+
+Rewriting $\norm{x(s) - w(s)} = e^{\lambda s}\,e^{-\lambda s}\norm{x(s) - w(s)} \leq e^{\lambda s}\,\norm{x - w}_\lambda$:
+\[
+\norm{(\mathcal{T}x)(t) - (\mathcal{T}w)(t)} \leq L\,\norm{x - w}_\lambda \int_0^t e^{\lambda s}\,ds = \frac{L}{\lambda}\,\norm{x - w}_\lambda\,\bigl(e^{\lambda t} - 1\bigr).
+\]
+\end{frame}
+
+% ============================================================================
+\begin{frame}{Existence and Uniqueness}
+Multiplying both sides by $e^{-\lambda t}$ and taking the supremum over $t$:
+\[
+\norm{\mathcal{T}x - \mathcal{T}w}_\lambda \leq \frac{L}{\lambda}\,\norm{x - w}_\lambda\,\bigl(1 - e^{-\lambda t}\bigr) \leq \frac{L}{\lambda}\,\norm{x - w}_\lambda.
+\]
+
+\bigskip
+If $L/\lambda < 1$, then $\mathcal{T}$ is a contraction, and the Banach fixed point theorem gives a unique fixed point. \qed
+\end{frame}
+
+% ============================================================================
+\begin{frame}{Bounds on the Solutions}
+For the sigmoid and hyperbolic tangent activation functions, each component of $\sigma$ is bounded by $1$, so $\norm{f(x, t;\,P)} \leq \sqrt{d}$. Since $t \in [0,1]$,
+\[
+\norm{x(t)} \leq \norm{a} + \sqrt{d}.
+\]
+The solution is uniformly bounded, regardless of the value of the parameters.
+\end{frame}
+
+% ============================================================================
+\begin{frame}{Bounds on the Solutions}
+\textbf{ReLU.} Since $\norm{\sigma(A(t)x + B(t))} \leq \norm{A(t)x + B(t)}$, we have $\norm{f(x, t;\,P)} \leq M\norm{x} + \beta$ where $M = \sup_t\norm{A(t)}_\op$ and $\beta = \sup_t\norm{B(t)}$. Since $t \in [0,1]$,
+\[
+\norm{x(t)} \leq \norm{a} + \int_0^t \bigl(M\,\norm{x(s)} + \beta\bigr)\,ds.
+\]
+
+Let $y(t) = \norm{x(t)} + \beta/M$:
+\[
+y(t) \leq \Bigl(\norm{a} + \tfrac{\beta}{M}\Bigr) + \!\int_0^t M \cdot y(s)\,ds.
+\]
+
+By Gronwall's inequality, $y(t) \leq \bigl(\norm{a} + \beta/M\bigr)e^{Mt}$, hence
+\[
+\norm{x(t)} \leq \Bigl(\norm{a} + \tfrac{\beta}{M}\Bigr)e^{Mt} - \tfrac{\beta}{M}.
+\]
+\end{frame}
+
+% ============================================================================
+\begin{frame}{Continuous Dependence on Control Parameters}
+\textbf{Theorem.} Let $P_1 = (A_1, B_1)$ and $P_2 = (A_2, B_2)$ be two control parameters, and let $x_1$, $x_2$ be the corresponding solutions with the same initial condition $a$. Then
+\[
+\norm{x_1(t) - x_2(t)} \leq \frac{\delta}{L}\bigl(e^{Lt} - 1\bigr),
+\]
+where $L = L_\sigma \cdot \sup_t \norm{A_1(t)}_\op$ and $\delta = \sup_t \norm{f(x_2(t), t;\,P_1) - f(x_2(t), t;\,P_2)}$.
+
+\bigskip
+\textbf{Proof.} Let $w(t) = x_1(t) - x_2(t)$. If we write this as an integral:
+\begin{align*}
+w(t) &= \int_0^t \bigl[f(x_1(s), s;\,P_1) - f(x_2(s), s;\,P_2)\bigr]\,ds \\
+     &= \int_0^t \bigl[f(x_1, s;\,P_1) - f(x_2, s;\,P_1) + f(x_2, s;\,P_1) - f(x_2, s;\,P_2)\bigr]\,ds \\
+     &= \int_0^t \bigl[f(x_1, s;\,P_1) - f(x_2, s;\,P_1)\bigr]\,ds + \int_0^t \bigl[f(x_2, s;\,P_1) - f(x_2, s;\,P_2)\bigr]\,ds.
+\end{align*}
+\end{frame}
+
+% ============================================================================
+\begin{frame}{Continuous Dependence on Control Parameters}
+The first bracket is bounded by $L\,\norm{w(s)}$, the second by $\delta$. So:
+\[
+\norm{w(t)} \leq \int_0^t L\,\norm{w(s)}\,ds + \delta\,t.
+\]
+
+Let $y(t) = \norm{w(t)} + \delta/L$. Then,
+\[
+y(t) \leq \frac{\delta}{L} + L\!\int_0^t y(s)\,ds.
+\]
+
+By Gronwall's inequality, $y(t) \leq (\delta/L)\,e^{Lt}$, hence
+\[
+\norm{w(t)} \leq \frac{\delta}{L}\bigl(e^{Lt} - 1\bigr). \qed
+\]
+\end{frame}
+
+\backupend
+
+\end{document}

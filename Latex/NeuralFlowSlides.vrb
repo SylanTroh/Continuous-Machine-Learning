@@ -1,0 +1,9 @@
+\frametitle{The Same Model: Chebyshev + Runge--Kutta}
+The trained control parameters, re-represented in the Chebyshev basis by interpolation at the Chebyshev nodes; the solver is Tsit5 (Tsitouras 2011), an adaptive Runge--Kutta 5(4) method.
+
+\begin{lstlisting}
+cheb = change_representation(model, ChebPoly, 17)  # change of basis
+ts, xs = solve_tsit5(cheb, a, 0:0.01:1)            # change of solver
+\end{lstlisting}
+
+\resultfigure[0.34\textheight]{demo_cheb_tsit5.png}{forward solves side by side: Spline + Euler / ChebPoly + Tsit5 --- saved by the notebook}

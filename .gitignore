@@ -1,0 +1,11 @@
+*.zip
+Manifest.toml
+results/
+scripts/
+.local-julia/
+local.toml
+logs/
+.ipynb_checkpoints/
+Notes/
+References/
+.zed/

@@ -1,0 +1,5 @@
+\beamer@sectionintoc {1}{Motivation}{3}{0}{1}
+\beamer@sectionintoc {2}{Controllability Experiments}{8}{0}{2}
+\beamer@sectionintoc {3}{Difficulties in Training the Determinant Function}{16}{0}{3}
+\beamer@sectionintoc {4}{Future Research Directions}{26}{0}{4}
+\beamer@sectionintoc {5}{Existence, Uniqueness, and Smoothness}{30}{1}{5}
